@@ -1,73 +1,82 @@
 public with sharing class PrevisaoService {
 
-    public static Map<String,Object> getLatLong(Id accId) {
-        Account acc = [
-            SELECT Id,
-        	BillingCity
-            FROM Account
-            WHERE Id =: accId
-        ];
-    
-        Http http = new Http();
-        HttpRequest req = new HttpRequest();
-        String cidadeCodificada = EncodingUtil.urlEncode(acc.BillingCity, 'UTF-8');
-        req.setEndpoint('https://nominatim.openstreetmap.org/search?q=' + cidadeCodificada + '&format=json&limit=1');
-        req.setMethod('GET');
-        HttpResponse res = http.send(req);
-        
-        List<Object> results = (List<Object>) JSON.deserializeUntyped(res.getBody());
-        
-
-        System.debug(results);  
-        if (!results.isEmpty()) {
-            return (Map<String,Object>) results[0];
-        }
-        
-        return null; 
-    }
-
-
+    @TestVisible private static final String NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+    @TestVisible private static final String OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
+    // A política de uso do Nominatim exige um User-Agent que identifique a aplicação.
+    private static final String USER_AGENT = 'Salesforce-PrevisaoTempo/1.0';
+    private static final Integer TIMEOUT_MS = 10000;
 
     @AuraEnabled
-    public static Map<String,Object> getPrevisao(Id accId){
-
-        Account acc = [
-           SELECT Id,
-            BillingCity
+    public static Map<String, Object> getPrevisao(Id accId) {
+        List<Account> contas = [
+            SELECT Id, BillingCity
             FROM Account
-            WHERE Id =: accId
+            WHERE Id = :accId
+            WITH USER_MODE
+            LIMIT 1
         ];
-
-        Map<String,Object> latLong = getLatLong(accId);
-        
-        // Verifica se a cidade foi encontrada
-        if (latLong == null) {
-            throw new AuraHandledException('Cidade não encontrada: ' + acc.BillingCity);
+        if (contas.isEmpty()) {
+            throw erro('Conta não encontrada.');
         }
-        
-        String lat = (String) latLong.get('lat');
-        String lon = (String) latLong.get('lon');
 
+        String cidade = contas[0].BillingCity;
+        if (String.isBlank(cidade)) {
+            throw erro('Cidade de cobrança não informada nesta conta.');
+        }
 
-        String urlForecast = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +'&longitude=' + lon +'&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&forecast_days=7';
+        Map<String, Object> latLong = getLatLong(cidade);
+        if (latLong == null) {
+            throw erro('Cidade não encontrada: ' + cidade);
+        }
 
-    HttpRequest req = new HttpRequest();
-    req.setEndpoint(urlForecast);
-    req.setMethod('GET');
+        String lat = String.valueOf(latLong.get('lat'));
+        String lon = String.valueOf(latLong.get('lon'));
 
-    Http http = new Http();
-    HTTPResponse res = http.send(req);
+        HttpResponse res = enviar(
+            OPEN_METEO_URL + '?latitude=' + lat + '&longitude=' + lon
+            + '&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&forecast_days=7'
+        );
+        if (res.getStatusCode() != 200) {
+            throw erro('Erro ao buscar previsão (HTTP ' + res.getStatusCode() + ').');
+        }
 
-    if (res.getStatusCode() != 200) {
-        throw new AuraHandledException('Erro ao buscar previsão: ' + res.getBody());
+        return new Map<String, Object>{
+            'cidade' => cidade,
+            'dados' => JSON.deserializeUntyped(res.getBody())
+        };
     }
 
-    Map<String, Object> forecast = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+    @TestVisible
+    private static Map<String, Object> getLatLong(String cidade) {
+        HttpResponse res = enviar(
+            NOMINATIM_URL + '?q=' + EncodingUtil.urlEncode(cidade, 'UTF-8') + '&format=json&limit=1'
+        );
+        if (res.getStatusCode() != 200) {
+            throw erro('Erro ao localizar a cidade (HTTP ' + res.getStatusCode() + ').');
+        }
 
-    Map<String, Object> result = new Map<String, Object>();
-    result.put('cidade', acc.BillingCity);
-    result.put('dados', forecast);
-    System.debug(result);
-    return result;
+        List<Object> resultados = (List<Object>) JSON.deserializeUntyped(res.getBody());
+        return resultados.isEmpty() ? null : (Map<String, Object>) resultados[0];
+    }
+
+    private static HttpResponse enviar(String endpoint) {
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint(endpoint);
+        req.setMethod('GET');
+        req.setHeader('User-Agent', USER_AGENT);
+        req.setHeader('Accept', 'application/json');
+        req.setTimeout(TIMEOUT_MS);
+        try {
+            return new Http().send(req);
+        } catch (CalloutException e) {
+            throw erro('Serviço de previsão indisponível: ' + e.getMessage());
+        }
+    }
+
+    // AuraHandledException só expõe a mensagem ao LWC (e aos testes) com setMessage.
+    private static AuraHandledException erro(String mensagem) {
+        AuraHandledException e = new AuraHandledException(mensagem);
+        e.setMessage(mensagem);
+        return e;
     }
 }

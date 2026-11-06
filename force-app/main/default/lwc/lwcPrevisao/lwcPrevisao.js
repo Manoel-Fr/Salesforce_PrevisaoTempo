@@ -1,7 +1,7 @@
 import { LightningElement, api, track } from 'lwc';
 import getPrevisao from '@salesforce/apex/PrevisaoService.getPrevisao';
 
-export default class PrevisaoLwc extends LightningElement {
+export default class LwcPrevisao extends LightningElement {
 
     @api recordId;
     @track cidade = '';
