@@ -1,0 +1,56 @@
+<template>
+    <div class="weather-container">
+        <div class="header-section">
+            <h1 class="title">🌤️ Previsão do Tempo</h1>
+            <template if:false={isLoading}>
+                <p class="city-name">{cidade}</p>
+            </template>
+        </div>
+
+        <template if:true={isLoading}>
+            <div class="loading-container">
+                <div class="spinner"></div>
+                <p class="loading-text">Carregando previsão...</p>
+            </div>
+        </template>
+
+        <template if:true={error}>
+            <div class="error-container">
+                <div class="error-icon">⚠️</div>
+                <p class="error-text">{error}</p>
+            </div>
+        </template>
+
+        <template if:false={isLoading}>
+            <template if:false={error}>
+                <div class="forecast-grid">
+                    <template for:each={previsoes} for:item="previsao">
+                        <div key={previsao.id} class="forecast-card">
+                            <div class="card-content">
+                                <div class="day-name">{previsao.diaSemana}</div>
+                                
+                                <div class="date">{previsao.data}</div>
+                                
+                                <div class="weather-icon">{previsao.iconeClima}</div>
+                                
+                                <div class="weather-description">{previsao.descricaoClima}</div>
+                                
+                                <div class="temperature-container">
+                                    <div class="temp-max">
+                                        <span class="temp-label">Máx</span>
+                                        <span class="temp-value">{previsao.temperaturaMax}°</span>
+                                    </div>
+                                    <div class="temp-separator">•</div>
+                                    <div class="temp-min">
+                                        <span class="temp-label">Mín</span>
+                                        <span class="temp-value">{previsao.temperaturaMin}°</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </template>
+    </div>
+</template>
