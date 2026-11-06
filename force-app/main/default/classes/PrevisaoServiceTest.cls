@@ -74,6 +74,39 @@ private class PrevisaoServiceTest {
     }
 
     @IsTest
+    static void buscaUsaEstadoEPaisDaConta() {
+        Account acc = new Account(
+            Name = 'Conta Vitória', BillingCity = 'Vitória', BillingState = 'ES', BillingCountry = 'Brasil'
+        );
+        insert acc;
+        MockHttp mock = new MockHttp(200, GEO_OK, 200);
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        PrevisaoService.getPrevisao(acc.Id);
+        Test.stopTest();
+
+        String endpoint = mock.requisicoes[0].getEndpoint();
+        Assert.isTrue(endpoint.contains('countrycodes=br'), 'Brasil deve restringir a busca: ' + endpoint);
+        Assert.isTrue(endpoint.endsWith('q=Vit%C3%B3ria%2C+ES'), 'Estado deve ir junto da cidade: ' + endpoint);
+    }
+
+    @IsTest
+    static void urlDeGeocodingConformePais() {
+        String semPais = PrevisaoService.montarUrlGeocoding('Santa Cruz', 'RN', null);
+        Assert.isTrue(semPais.contains('countrycodes=br'), 'País vazio assume Brasil: ' + semPais);
+        Assert.isTrue(semPais.endsWith('q=Santa+Cruz%2C+RN'), semPais);
+
+        String brazil = PrevisaoService.montarUrlGeocoding(' Recife ', null, ' Brazil ');
+        Assert.isTrue(brazil.contains('countrycodes=br'), brazil);
+        Assert.isTrue(brazil.endsWith('q=Recife'), 'Sem estado, só a cidade: ' + brazil);
+
+        String exterior = PrevisaoService.montarUrlGeocoding('San Francisco', 'CA', 'United States');
+        Assert.isFalse(exterior.contains('countrycodes'), 'Outro país não restringe ao Brasil: ' + exterior);
+        Assert.isTrue(exterior.endsWith('q=San+Francisco%2C+CA%2C+United+States'), exterior);
+    }
+
+    @IsTest
     static void contaSemCidadeNaoFazCallout() {
         Id accId = criarConta(null);
         MockHttp mock = new MockHttp(200, GEO_OK, 200);

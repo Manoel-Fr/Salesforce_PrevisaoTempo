@@ -5,11 +5,12 @@ public with sharing class PrevisaoService {
     // A política de uso do Nominatim exige um User-Agent que identifique a aplicação.
     private static final String USER_AGENT = 'Salesforce-PrevisaoTempo/1.0';
     private static final Integer TIMEOUT_MS = 10000;
+    private static final Set<String> PAISES_BRASIL = new Set<String>{ 'brasil', 'brazil', 'br', 'bra' };
 
     @AuraEnabled
     public static Map<String, Object> getPrevisao(Id accId) {
         List<Account> contas = [
-            SELECT Id, BillingCity
+            SELECT Id, BillingCity, BillingState, BillingCountry
             FROM Account
             WHERE Id = :accId
             WITH USER_MODE
@@ -19,12 +20,13 @@ public with sharing class PrevisaoService {
             throw erro('Conta não encontrada.');
         }
 
-        String cidade = contas[0].BillingCity;
+        Account conta = contas[0];
+        String cidade = conta.BillingCity;
         if (String.isBlank(cidade)) {
             throw erro('Cidade de cobrança não informada nesta conta.');
         }
 
-        Map<String, Object> latLong = getLatLong(cidade);
+        Map<String, Object> latLong = getLatLong(cidade, conta.BillingState, conta.BillingCountry);
         if (latLong == null) {
             throw erro('Cidade não encontrada: ' + cidade);
         }
@@ -46,11 +48,27 @@ public with sharing class PrevisaoService {
         };
     }
 
+    // Nomes de cidade se repetem pelo mundo ("Vitória" vira Victoria, na Austrália).
+    // Por isso a busca leva estado e país e, quando o país é o Brasil ou está vazio,
+    // fica restrita ao Brasil.
     @TestVisible
-    private static Map<String, Object> getLatLong(String cidade) {
-        HttpResponse res = enviar(
-            NOMINATIM_URL + '?q=' + EncodingUtil.urlEncode(cidade, 'UTF-8') + '&format=json&limit=1'
-        );
+    private static String montarUrlGeocoding(String cidade, String estado, String pais) {
+        List<String> partes = new List<String>{ cidade.trim() };
+        if (String.isNotBlank(estado)) {
+            partes.add(estado.trim());
+        }
+        String url = NOMINATIM_URL + '?format=json&limit=1';
+        if (String.isBlank(pais) || PAISES_BRASIL.contains(pais.trim().toLowerCase())) {
+            url += '&countrycodes=br';
+        } else {
+            partes.add(pais.trim());
+        }
+        return url + '&q=' + EncodingUtil.urlEncode(String.join(partes, ', '), 'UTF-8');
+    }
+
+    @TestVisible
+    private static Map<String, Object> getLatLong(String cidade, String estado, String pais) {
+        HttpResponse res = enviar(montarUrlGeocoding(cidade, estado, pais));
         if (res.getStatusCode() != 200) {
             throw erro('Erro ao localizar a cidade (HTTP ' + res.getStatusCode() + ').');
         }

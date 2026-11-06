@@ -22,7 +22,7 @@
 
 ## ✨ O que ele faz
 
-- 📍 **Usa a cidade da própria Conta**: lê o `BillingCity`, sem nenhuma configuração extra por registro.
+- 📍 **Usa o endereço da própria Conta**: lê cidade, estado e país de cobrança, sem nenhuma configuração extra por registro.
 - 📅 **7 dias de previsão**, com dia da semana, data, ícone, descrição em português e temperaturas máxima e mínima.
 - 🎨 **Visual em vidro fosco** (glassmorphism), com fundo em gradiente animado e cards com efeito ao passar o mouse.
 - 📱 **Funciona no app mobile** do Salesforce, com layout próprio para telas pequenas.
@@ -42,8 +42,8 @@ sequenceDiagram
 
     U->>L: Abre a página da Conta
     L->>A: getPrevisao(recordId)
-    A->>A: Lê Account.BillingCity (USER_MODE)
-    A->>N: Busca a cidade
+    A->>A: Lê cidade, estado e país de cobrança (USER_MODE)
+    A->>N: Busca "cidade, UF" (restrita ao Brasil)
     N-->>A: Latitude e longitude
     A->>M: Previsão diária (7 dias)
     M-->>A: Máx, mín e código do clima
@@ -52,7 +52,7 @@ sequenceDiagram
 ```
 
 1. O componente recebe o `recordId` da Conta e chama `PrevisaoService.getPrevisao`.
-2. O Apex lê a `BillingCity` e converte o nome da cidade em coordenadas pelo **Nominatim**.
+2. O Apex lê `BillingCity`, `BillingState` e `BillingCountry` e converte o endereço em coordenadas pelo **Nominatim**. Quando o país é Brasil (ou está vazio), a busca fica restrita ao Brasil, o que evita cair numa cidade homônima de outro país.
 3. Com as coordenadas, consulta a previsão diária no **Open-Meteo**, no fuso horário local da cidade.
 4. O LWC traduz o [código de clima WMO](https://open-meteo.com/en/docs#weathervariables) em ícone e descrição, e monta os cards.
 
@@ -63,7 +63,7 @@ force-app/main/default/
 ├── lwc/lwcPrevisao/               # Componente (HTML, JS, CSS e metadados)
 ├── classes/
 │   ├── PrevisaoService.cls        # Integração com Nominatim e Open-Meteo
-│   └── PrevisaoServiceTest.cls    # 7 cenários com HttpCalloutMock
+│   └── PrevisaoServiceTest.cls    # 9 cenários com HttpCalloutMock
 └── remoteSiteSettings/
     ├── nominatim_openstreetmap    # https://nominatim.openstreetmap.org
     └── previsao                   # https://api.open-meteo.com
@@ -121,6 +121,8 @@ sf apex run test -o minhaOrg -n PrevisaoServiceTest -r human -c
 Os testes usam `HttpCalloutMock` e não chamam nenhum serviço real. Eles cobrem:
 
 - ✅ Previsão retornada, com a cidade codificada na URL e o cabeçalho `User-Agent` presente
+- ✅ Busca com estado e país, restrita ao Brasil quando o país é Brasil ou está vazio
+- ✅ Busca sem restrição para contas de outros países
 - ✅ Conta sem cidade (nenhuma chamada externa é feita)
 - ✅ Cidade não encontrada
 - ✅ Erro HTTP no Nominatim e no Open-Meteo
@@ -129,7 +131,7 @@ Os testes usam `HttpCalloutMock` e não chamam nenhum serviço real. Eles cobrem
 
 ## ⚠️ Limitações conhecidas
 
-- **Cidades com o mesmo nome:** a busca usa só o `BillingCity`. Nomes que existem em mais de um país podem cair no lugar errado. Por exemplo, hoje *"Vitória"* é localizada como o estado de Victoria, na Austrália, e *"Santa Cruz"* como Santa Cruz de Tenerife, na Espanha.
+- **Cidades com o mesmo nome no Brasil:** sem o estado preenchido, a busca pega a cidade mais relevante com aquele nome no país. Preencha o `BillingState` para acertar sempre (ex.: *Santa Cruz, RN*).
 - **Limite de uso do Nominatim:** o serviço público aceita cerca de 1 requisição por segundo e pede um `User-Agent` que identifique a aplicação (já enviado). Para muitos usuários ao mesmo tempo, vale cachear as coordenadas na Conta.
 - **Unidades:** temperaturas em °C, arredondadas.
 
